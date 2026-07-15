@@ -1,0 +1,8 @@
+node_modules/
+# Real secrets (Neon e2e DSN, admin password) live here — never commit.
+.env
+# Playwright output
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/

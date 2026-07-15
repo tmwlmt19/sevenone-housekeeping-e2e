@@ -1,0 +1,24 @@
+{
+  "name": "sevenone-housekeeping-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Whole-system end-to-end tests for SevenOne Housekeeping (login SSO + hotel app + admin console + API).",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:cross-role": "playwright test cross-role",
+    "report": "playwright show-report",
+    "setup:db": "bash scripts/setup-db.sh",
+    "install:browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1",
+    "@types/node": "^22.10.5",
+    "@types/pg": "^8.11.10",
+    "dotenv": "^16.4.7",
+    "pg": "^8.13.1",
+    "typescript": "^5.7.3"
+  }
+}
