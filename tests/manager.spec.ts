@@ -337,6 +337,38 @@ test('MGR-16: manager reassigns a housekeeper’s whole workload to another (cal
   })
 })
 
+test('MGR-17: manager clears completed tasks off the board', async ({
+  page,
+  hotel,
+}) => {
+  const j = journey('MGR-17')
+
+  await j.step('seed a completed task', async () => {
+    await hotel.admin.createTask(hotel.hotelId, {
+      room_id: hotel.rooms[0].id,
+      assigned_to: hotel.housekeeper.id,
+      status: 'completed',
+      priority: 'normal',
+    })
+  })
+  await j.step('manager opens the board and clears completed', async () => {
+    await asManager(page, hotel)
+    await page.goto(`${APP.web}/tasks`)
+    await page.getByRole('button', { name: 'Clear completed' }).click()
+    // Confirm in the alert dialog.
+    await page
+      .getByRole('alertdialog')
+      .getByRole('button', { name: 'Clear', exact: true })
+      .click()
+    await expect(page.getByText('1 completed task cleared')).toBeVisible()
+  })
+  await j.step('the completed task is gone from the board (soft-archived)', async () => {
+    // Default list no longer returns the archived task.
+    const tasks = await hotel.admin.listTasks(hotel.hotelId)
+    expect(tasks.length).toBe(0)
+  })
+})
+
 test('MGR-10: manager changes their own password', async ({ page, hotel }) => {
   const j = journey('MGR-10')
   await j.step('sign in and open Account', async () => {
