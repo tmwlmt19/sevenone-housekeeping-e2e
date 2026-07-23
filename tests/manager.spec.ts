@@ -182,6 +182,110 @@ test('MGR-08: file a room add request', async ({ page, hotel }) => {
   })
 })
 
+test('MGR-13: pending add-requests show inline on the staff & rooms pages', async ({
+  page,
+  hotel,
+}) => {
+  const j = journey('MGR-13')
+  const suffix = uniqueSuffix()
+  const newName = `Inline Hire ${suffix}`
+  const newEmail = `inline-${suffix}@e2e-sevenone.com`
+  const roomNumber = `INL-${suffix}`
+
+  await j.step('a manager files a staff-add and a room-add request', async () => {
+    const mgr = await Api.loggedIn(hotel.manager.email, TEST_USER_PASSWORD)
+    await mgr.fileRequest(hotel.hotelId, {
+      resource: 'staff',
+      kind: 'add',
+      payload: { name: newName, email: newEmail, role: 'housekeeper' },
+    })
+    await mgr.fileRequest(hotel.hotelId, {
+      resource: 'room',
+      kind: 'add',
+      payload: { room_number: roomNumber, room_type: 'STD' },
+    })
+  })
+  await j.step('the requested staff appears on Staff, flagged Pending', async () => {
+    await asManager(page, hotel)
+    await page.goto(`${APP.web}/staff`)
+    await expect(page.getByText(newName)).toBeVisible()
+    await expect(page.getByText('Pending', { exact: true })).toBeVisible()
+  })
+  await j.step('the requested room appears on Rooms, flagged Pending', async () => {
+    await page.goto(`${APP.web}/rooms`)
+    await expect(page.getByText(roomNumber)).toBeVisible()
+    await expect(page.getByText('Pending', { exact: true })).toBeVisible()
+  })
+})
+
+test('MGR-14: a pending removal flags the existing staff/room row', async ({
+  page,
+  hotel,
+}) => {
+  const j = journey('MGR-14')
+
+  await j.step('a manager files remove requests for the housekeeper and the room', async () => {
+    const mgr = await Api.loggedIn(hotel.manager.email, TEST_USER_PASSWORD)
+    await mgr.fileRequest(hotel.hotelId, {
+      resource: 'staff',
+      kind: 'remove',
+      target_id: hotel.housekeeper.id,
+    })
+    await mgr.fileRequest(hotel.hotelId, {
+      resource: 'room',
+      kind: 'remove',
+      target_id: hotel.rooms[0].id,
+    })
+  })
+  await j.step('the housekeeper row shows Pending removal on Staff', async () => {
+    await asManager(page, hotel)
+    await page.goto(`${APP.web}/staff`)
+    await expect(page.getByText(hotel.housekeeper.name)).toBeVisible()
+    await expect(page.getByText('Pending removal')).toBeVisible()
+  })
+  await j.step('the room row shows Pending removal on Rooms', async () => {
+    await page.goto(`${APP.web}/rooms`)
+    await expect(page.getByText('Pending removal')).toBeVisible()
+  })
+})
+
+test('MGR-15: with auto-approve on, a completed task skips sign-off and cleans the room', async ({
+  page,
+  hotel,
+}) => {
+  const j = journey('MGR-15')
+  const room = hotel.rooms[0]
+  let taskId = ''
+
+  await j.step('seed a task assigned to the housekeeper', async () => {
+    const task = await hotel.admin.createTask(hotel.hotelId, {
+      room_id: room.id,
+      assigned_to: hotel.housekeeper.id,
+      status: 'assigned',
+      priority: 'normal',
+    })
+    taskId = task.id
+  })
+  await j.step('manager turns on auto-approve from the Tasks page', async () => {
+    await asManager(page, hotel)
+    await page.goto(`${APP.web}/tasks`)
+    const toggle = page.getByRole('checkbox')
+    // The checkbox is controlled by the persisted hotel flag, so it only flips
+    // once the PATCH round-trips — click, then wait for the reflected state.
+    await toggle.click()
+    await expect(toggle).toBeChecked()
+  })
+  await j.step('the housekeeper completing the task goes straight to Completed', async () => {
+    const hk = await Api.loggedIn(hotel.housekeeper.email, TEST_USER_PASSWORD)
+    const updated = await hk.updateTaskStatus(hotel.hotelId, taskId, 'completed')
+    expect(updated.status).toBe('completed')
+  })
+  await j.step('and the room was cleaned (no manager approval needed)', async () => {
+    const updatedRoom = await hotel.admin.getRoom(hotel.hotelId, room.id)
+    expect(updatedRoom.status).toBe('clean')
+  })
+})
+
 test('MGR-10: manager changes their own password', async ({ page, hotel }) => {
   const j = journey('MGR-10')
   await j.step('sign in and open Account', async () => {

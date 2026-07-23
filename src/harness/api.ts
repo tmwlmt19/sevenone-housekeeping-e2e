@@ -22,7 +22,11 @@ interface ProvisionInput {
     room_type?: string | null
     status?: string
   }>
-  users: Array<{ name: string; email: string; role: 'manager' | 'housekeeper' }>
+  users: Array<{
+    name: string
+    email: string
+    role: 'manager' | 'front_desk' | 'housekeeper'
+  }>
 }
 
 interface ProvisionResult {
@@ -148,6 +152,24 @@ export class Api {
       `/api/v1/hotels/${hotelId}/rooms/${roomId}/status`,
       { status },
     )
+  }
+
+  /** Update a task's status (as whoever this client is logged in as). Used to
+   * drive the approval flow: a housekeeper submits, a manager approves. */
+  updateTaskStatus(hotelId: string, taskId: string, status: string): Promise<TaskRead> {
+    return this.request(
+      'PATCH',
+      `/api/v1/hotels/${hotelId}/tasks/${taskId}/status`,
+      { status },
+    )
+  }
+
+  /** Toggle whether completing a task auto-approves (skips manager sign-off).
+   * Hotel-ops power (manager/front-desk/admin). */
+  setAutoApprove(hotelId: string, autoApprove: boolean): Promise<{ id: string }> {
+    return this.request('PATCH', `/api/v1/hotels/${hotelId}/task-approval`, {
+      auto_approve_tasks: autoApprove,
+    })
   }
 
   getRoom(hotelId: string, roomId: string): Promise<RoomRead> {

@@ -38,7 +38,7 @@ test('HK-01: housekeeper sees only their assigned task', async ({
   })
 })
 
-test('HK-02 & HK-03: housekeeper starts a task, completes it, and the room auto-cleans', async ({
+test('HK-02 & HK-03: housekeeper starts a task and submits it for approval (room stays dirty until a manager approves)', async ({
   page,
   hotel,
 }) => {
@@ -61,14 +61,19 @@ test('HK-02 & HK-03: housekeeper starts a task, completes it, and the room auto-
     await expect(page.getByText('In progress')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Mark complete' })).toBeVisible()
   })
-  await j.step('HK-03: tap Mark complete → task Completed, no more action button', async () => {
+  await j.step('HK-03: tap Mark complete → task goes to Pending approval, no more action button', async () => {
     await page.getByRole('button', { name: 'Mark complete' }).click()
-    await expect(page.getByText('Completed')).toBeVisible()
+    // A hotel with the default (no auto-approve) sends a completed task to the
+    // manager for sign-off; the housekeeper can no longer act on it.
+    await expect(page.getByText('Pending approval')).toBeVisible()
+    await expect(page.getByText('Awaiting manager approval')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Mark complete' })).toHaveCount(0)
   })
-  await j.step('the room flipped to clean on the backend', async () => {
+  await j.step('the room has NOT been cleaned yet (approval is what flips it)', async () => {
     const updated = await hotel.admin.getRoom(hotel.hotelId, room.id)
-    expect(updated.status).toBe('clean')
+    expect(updated.status).toBe('dirty')
+    const [task] = await hotel.admin.listTasks(hotel.hotelId)
+    expect(task.status).toBe('pending_approval')
   })
 })
 

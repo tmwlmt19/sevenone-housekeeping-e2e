@@ -172,8 +172,17 @@ test('ADM-06: approve an access request (creates the staff member)', async ({
     await expect(page.getByText(email)).toBeVisible()
     await requestCard(page, email).getByRole('button', { name: 'Approve' }).click()
   })
-  await j.step('approval succeeds and the pending card clears', async () => {
-    await expect(page.getByText('Staff added')).toBeVisible()
+  await j.step('a confirmation popup notes success and the welcome email', async () => {
+    const dialog = page.getByRole('dialog')
+    await expect(
+      dialog.getByRole('heading', { name: 'Staff member added' }),
+    ).toBeVisible()
+    // The popup names the new user and states a welcome email was sent to them.
+    await expect(dialog.getByText(email)).toBeVisible()
+    await expect(dialog.getByText(/welcome email/i)).toBeVisible()
+    await dialog.getByRole('button', { name: 'Done' }).click()
+  })
+  await j.step('the pending card clears from the queue', async () => {
     await expect(page.getByText(email)).toHaveCount(0)
   })
   await j.step('the new user really exists (authoritative check)', async () => {

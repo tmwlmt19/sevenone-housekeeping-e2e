@@ -19,6 +19,8 @@ export interface SeededHotel {
   /** Admin client already logged in as the platform admin. */
   admin: Api
   manager: SeededUser
+  /** Present only when provisioned with `withFrontDesk: true`. */
+  frontDesk?: SeededUser
   housekeeper: SeededUser
   rooms: Array<{ id: string; room_number: string }>
   /** The one-time shared temp password the provision endpoint returned. */
@@ -41,6 +43,8 @@ export interface ProvisionOptions {
    * the tests that exercise the forced-change ceremony itself (AUTH-04).
    */
   clearForcedChange?: boolean
+  /** Also provision a `front_desk` user, returned as `hotel.frontDesk`. */
+  withFrontDesk?: boolean
 }
 
 /** A short, email-safe, collision-resistant suffix for this test's data. */
@@ -62,21 +66,35 @@ export async function provisionHotel(
 
   const hotelName = `E2E ${opts.label ?? 'Hotel'} ${suffix}`
   const managerEmail = `mgr-${suffix}@${E2E_EMAIL_DOMAIN}`
+  const frontDeskEmail = `fd-${suffix}@${E2E_EMAIL_DOMAIN}`
   const housekeeperEmail = `hk-${suffix}@${E2E_EMAIL_DOMAIN}`
+
+  const users: Array<{
+    name: string
+    email: string
+    role: 'manager' | 'front_desk' | 'housekeeper'
+  }> = [
+    { name: `Manager ${suffix}`, email: managerEmail, role: 'manager' },
+    {
+      name: `Housekeeper ${suffix}`,
+      email: housekeeperEmail,
+      role: 'housekeeper',
+    },
+  ]
+  if (opts.withFrontDesk) {
+    users.push({
+      name: `Front Desk ${suffix}`,
+      email: frontDeskEmail,
+      role: 'front_desk',
+    })
+  }
 
   const result = await admin.provision({
     hotel: { name: hotelName, address: null },
     rooms:
       opts.rooms ??
       [{ room_number: '201', floor: 2, room_type: 'STD', status: 'dirty' }],
-    users: [
-      { name: `Manager ${suffix}`, email: managerEmail, role: 'manager' },
-      {
-        name: `Housekeeper ${suffix}`,
-        email: housekeeperEmail,
-        role: 'housekeeper',
-      },
-    ],
+    users,
   })
 
   const hotelId = result.hotel.id
@@ -110,12 +128,34 @@ export async function provisionHotel(
     mustChangePassword: true,
   }
 
+  let frontDesk: SeededUser | undefined
+  if (opts.withFrontDesk) {
+    const fdRaw = find('front_desk')
+    frontDesk = {
+      id: fdRaw.id,
+      email: fdRaw.email,
+      name: fdRaw.name,
+      password: tempPassword,
+      mustChangePassword: true,
+    }
+  }
+
   if (clearForced) {
     await clearForcedPasswordChange(manager)
     await clearForcedPasswordChange(housekeeper)
+    if (frontDesk) await clearForcedPasswordChange(frontDesk)
   }
 
-  return { hotelId, hotelName, admin, manager, housekeeper, rooms, tempPassword }
+  return {
+    hotelId,
+    hotelName,
+    admin,
+    manager,
+    frontDesk,
+    housekeeper,
+    rooms,
+    tempPassword,
+  }
 }
 
 /**
