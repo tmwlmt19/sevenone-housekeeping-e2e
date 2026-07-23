@@ -286,6 +286,57 @@ test('MGR-15: with auto-approve on, a completed task skips sign-off and cleans t
   })
 })
 
+test('MGR-16: manager reassigns a housekeeper’s whole workload to another (call-in)', async ({
+  page,
+}) => {
+  const j = journey('MGR-16')
+  const hotel = await provisionHotel({
+    label: 'Workload',
+    withSecondHousekeeper: true,
+  })
+  const out = hotel.housekeeper // the one who "called in"
+  const cover = hotel.housekeeper2!
+
+  await j.step('seed two open tasks assigned to the housekeeper who is out', async () => {
+    for (let i = 0; i < 2; i++) {
+      await hotel.admin.createTask(hotel.hotelId, {
+        room_id: hotel.rooms[0].id,
+        assigned_to: out.id,
+        status: 'assigned',
+        priority: 'normal',
+      })
+    }
+  })
+  await j.step('manager opens the Move-workload dialog on the Tasks page', async () => {
+    await loginAs(page, hotel.manager.email, hotel.manager.password, {
+      expect: 'web',
+    })
+    await page.goto(`${APP.web}/tasks`)
+    await page.getByRole('button', { name: 'Move workload' }).click()
+  })
+  await j.step('pick who is out, reassign to the covering housekeeper, submit', async () => {
+    await chooseOption(page, selectShowing(page, 'Select a housekeeper'), out.name)
+    await chooseOption(
+      page,
+      selectShowing(page, 'Everyone else (split evenly)'),
+      cover.name,
+    )
+    await page.getByRole('button', { name: 'Move tasks' }).click()
+    await expect(page.getByText('2 tasks moved')).toBeVisible()
+  })
+  await j.step('all open tasks now belong to the covering housekeeper (authoritative)', async () => {
+    const outTasks = await hotel.admin.listTasks(hotel.hotelId, {
+      assignedTo: out.id,
+    })
+    expect(outTasks.length).toBe(0)
+    const coverTasks = await hotel.admin.listTasks(hotel.hotelId, {
+      assignedTo: cover.id,
+    })
+    expect(coverTasks.length).toBe(2)
+    expect(coverTasks.every((t) => t.status === 'assigned')).toBe(true)
+  })
+})
+
 test('MGR-10: manager changes their own password', async ({ page, hotel }) => {
   const j = journey('MGR-10')
   await j.step('sign in and open Account', async () => {
