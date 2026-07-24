@@ -25,9 +25,12 @@ test('FD-01: front desk signs in, runs room status, and has no Requests tab', as
     await expect(page).toHaveURL(`${APP.web}/dashboard`)
   })
   await j.step('the nav shows manager views but NOT Requests', async () => {
-    await expect(page.getByRole('link', { name: 'Rooms' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Tasks' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Requests' })).toHaveCount(0)
+    // Scope to the sidebar nav — the dashboard also has "Manage rooms"/"Manage
+    // staff" quick-links that a loose name match would collide with.
+    const nav = page.getByRole('navigation')
+    await expect(nav.getByRole('link', { name: 'Rooms', exact: true })).toBeVisible()
+    await expect(nav.getByRole('link', { name: 'Tasks', exact: true })).toBeVisible()
+    await expect(nav.getByRole('link', { name: 'Requests', exact: true })).toHaveCount(0)
   })
   await j.step('front desk can change a room’s status (a manager-level power)', async () => {
     await page.goto(`${APP.web}/rooms`)
