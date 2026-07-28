@@ -314,13 +314,17 @@ test('MGR-16: manager reassigns a housekeeper’s whole workload to another (cal
     await page.goto(`${APP.web}/tasks`)
     await page.getByRole('button', { name: 'Move workload' }).click()
   })
-  await j.step('pick who is out, reassign to the covering housekeeper, submit', async () => {
+  await j.step('pick who is out, hand the whole workload to the covering housekeeper, submit', async () => {
     await chooseOption(page, selectShowing(page, 'Select a housekeeper'), out.name)
-    await chooseOption(
-      page,
-      selectShowing(page, 'Everyone else (split evenly)'),
-      cover.name,
-    )
+    // "Move their tasks to" is now a multi-select: open it and check the one
+    // covering housekeeper (a single pick hands them everything).
+    await page
+      .getByRole('button', { name: 'Everyone else (split evenly)' })
+      .click()
+    await page
+      .getByRole('menuitemcheckbox', { name: cover.name })
+      .click()
+    await page.keyboard.press('Escape')
     await page.getByRole('button', { name: 'Move tasks' }).click()
     await expect(page.getByText('2 tasks moved')).toBeVisible()
   })
