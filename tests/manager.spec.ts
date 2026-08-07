@@ -19,18 +19,23 @@ async function asManager(page: import('@playwright/test').Page, hotel: SeededHot
   })
 }
 
-test('MGR-01: manager reads the dashboard at a glance', async ({ page, hotel }) => {
+test('MGR-01: manager reads the stats dashboard at a glance', async ({ page, hotel }) => {
   const j = journey('MGR-01')
   await j.step('sign in and land on the dashboard', async () => {
     await asManager(page, hotel)
     await expect(page).toHaveURL(`${APP.web}/dashboard`)
   })
-  await j.step('room grid and open-tasks sections render', async () => {
-    await expect(page.getByRole('heading', { name: 'Rooms' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Open tasks' })).toBeVisible()
+  await j.step('the two stats cards and the date-range control render', async () => {
+    // exact: true so the card title doesn't also match its header wrapper.
     await expect(
-      page.getByText(hotel.rooms[0].room_number, { exact: true }),
+      page.getByText('Housekeeper performance', { exact: true }),
     ).toBeVisible()
+    await expect(page.getByText('Task load', { exact: true })).toBeVisible()
+    // Date-range presets in the header (default is 7 days).
+    await expect(page.getByRole('button', { name: '7 days' })).toBeVisible()
+    // Performance card tabs.
+    await expect(page.getByRole('tab', { name: 'By housekeeper' })).toBeVisible()
+    await expect(page.getByRole('tab', { name: 'Efficiency' })).toBeVisible()
   })
 })
 

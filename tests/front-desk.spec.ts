@@ -25,8 +25,7 @@ test('FD-01: front desk signs in, runs room status, and has no Requests tab', as
     await expect(page).toHaveURL(`${APP.web}/dashboard`)
   })
   await j.step('the nav shows manager views but NOT Requests', async () => {
-    // Scope to the sidebar nav — the dashboard also has "Manage rooms"/"Manage
-    // staff" quick-links that a loose name match would collide with.
+    // Scope to the sidebar nav so the link match is unambiguous.
     const nav = page.getByRole('navigation')
     await expect(nav.getByRole('link', { name: 'Rooms', exact: true })).toBeVisible()
     await expect(nav.getByRole('link', { name: 'Tasks', exact: true })).toBeVisible()

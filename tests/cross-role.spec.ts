@@ -19,6 +19,7 @@
 import { APP } from '../src/config'
 import { expect, test } from '../src/fixtures'
 import { loginAs, logout } from '../src/harness/login'
+import { clockIn } from '../src/harness/shift'
 import { journey } from '../src/harness/step'
 import { chooseOption, selectShowing } from '../src/harness/ui'
 
@@ -60,7 +61,7 @@ test('X-ROLE-01: one task across admin → manager → housekeeper → manager',
   const hkContext = await browser.newContext()
   const hkPage = await hkContext.newPage()
   try {
-    await j.step('housekeeper signs in and sees the assigned task', async () => {
+    await j.step('housekeeper signs in, clocks in, and sees the assigned task', async () => {
       await loginAs(
         hkPage,
         hotel.housekeeper.email,
@@ -68,6 +69,7 @@ test('X-ROLE-01: one task across admin → manager → housekeeper → manager',
         { expect: 'web' },
       )
       await expect(hkPage).toHaveURL(`${APP.web}/my-tasks`)
+      await clockIn(hkPage)
       await expect(hkPage.getByText(roomLabel)).toBeVisible()
     })
 
@@ -104,9 +106,10 @@ test('X-ROLE-01: one task across admin → manager → housekeeper → manager',
     expect(tasks.some((t) => t.status === 'completed')).toBe(true)
   })
 
-  await j.step('manager sees the clean room on the dashboard', async () => {
-    await page.goto(`${APP.web}/dashboard`)
-    // Room grid shows the room; its manager status control now reads Clean.
+  await j.step('manager sees the clean room on the rooms page', async () => {
+    // The dashboard is now a stats view; the room grid + status control live on
+    // the Rooms page. Its status control for this room now reads Clean.
+    await page.goto(`${APP.web}/rooms`)
     await expect(page.getByText(room.room_number, { exact: true })).toBeVisible()
     await expect(selectShowing(page, 'Clean')).toBeVisible()
   })
