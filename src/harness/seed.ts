@@ -24,6 +24,8 @@ export interface SeededHotel {
   housekeeper: SeededUser
   /** Present only when provisioned with `withSecondHousekeeper: true`. */
   housekeeper2?: SeededUser
+  /** Present only when provisioned with `withThirdHousekeeper: true`. */
+  housekeeper3?: SeededUser
   rooms: Array<{ id: string; room_number: string }>
   /** The one-time shared temp password the provision endpoint returned. */
   tempPassword: string
@@ -50,6 +52,9 @@ export interface ProvisionOptions {
   /** Also provision a second housekeeper, returned as `hotel.housekeeper2`
    * (for reassign/redistribute workload tests). */
   withSecondHousekeeper?: boolean
+  /** Also provision a third housekeeper, returned as `hotel.housekeeper3`
+   * (for fair-share balancing tests across three or more staff). */
+  withThirdHousekeeper?: boolean
 }
 
 /** A short, email-safe, collision-resistant suffix for this test's data. */
@@ -74,6 +79,7 @@ export async function provisionHotel(
   const frontDeskEmail = `fd-${suffix}@${E2E_EMAIL_DOMAIN}`
   const housekeeperEmail = `hk-${suffix}@${E2E_EMAIL_DOMAIN}`
   const housekeeper2Email = `hk2-${suffix}@${E2E_EMAIL_DOMAIN}`
+  const housekeeper3Email = `hk3-${suffix}@${E2E_EMAIL_DOMAIN}`
 
   const users: Array<{
     name: string
@@ -98,6 +104,13 @@ export async function provisionHotel(
     users.push({
       name: `Housekeeper Two ${suffix}`,
       email: housekeeper2Email,
+      role: 'housekeeper',
+    })
+  }
+  if (opts.withThirdHousekeeper) {
+    users.push({
+      name: `Housekeeper Three ${suffix}`,
+      email: housekeeper3Email,
       role: 'housekeeper',
     })
   }
@@ -166,11 +179,25 @@ export async function provisionHotel(
     }
   }
 
+  let housekeeper3: SeededUser | undefined
+  if (opts.withThirdHousekeeper) {
+    const hk3Raw = result.users.find((u) => u.email === housekeeper3Email)
+    if (!hk3Raw) throw new Error('provision did not return the 3rd housekeeper')
+    housekeeper3 = {
+      id: hk3Raw.id,
+      email: hk3Raw.email,
+      name: hk3Raw.name,
+      password: tempPassword,
+      mustChangePassword: true,
+    }
+  }
+
   if (clearForced) {
     await clearForcedPasswordChange(manager)
     await clearForcedPasswordChange(housekeeper)
     if (frontDesk) await clearForcedPasswordChange(frontDesk)
     if (housekeeper2) await clearForcedPasswordChange(housekeeper2)
+    if (housekeeper3) await clearForcedPasswordChange(housekeeper3)
   }
 
   return {
@@ -181,6 +208,7 @@ export async function provisionHotel(
     frontDesk,
     housekeeper,
     housekeeper2,
+    housekeeper3,
     rooms,
     tempPassword,
   }

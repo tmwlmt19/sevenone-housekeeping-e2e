@@ -54,6 +54,38 @@ interface TaskRead {
   due_date: string | null
 }
 
+/** A vertex in absolute floor feet. */
+type Vertex = [number, number]
+
+/** A room's door: which wall (edge index) and where along it (t, 0..1). */
+interface DoorRef {
+  edge: number
+  t: number
+}
+
+interface DecorationWrite {
+  kind: 'hall' | 'stairs' | 'elevator' | 'lobby' | 'label'
+  vertices: Vertex[]
+  label?: string | null
+}
+
+interface PlacementWrite {
+  room_id: string
+  vertices: Vertex[]
+  door?: DoorRef | null
+}
+
+/** Full-floor save body (mirrors the backend `FloorMapWrite`): floor dimensions,
+ * optional outline, its decorations, and the complete set of room placements. */
+export interface FloorMapWrite {
+  width_ft: number
+  height_ft: number
+  grid_ft?: number
+  outline?: Vertex[] | null
+  decorations?: DecorationWrite[]
+  placements?: PlacementWrite[]
+}
+
 /**
  * A thin, bearer-token API client for seeding and out-of-band assertions.
  *
@@ -104,6 +136,17 @@ export class Api {
 
   listRooms(hotelId: string): Promise<RoomRead[]> {
     return this.request('GET', `/api/v1/hotels/${hotelId}/rooms`)
+  }
+
+  /** Save one floor's layout (outline + decorations + room placements). The map
+   * PUT is a manager-scoped write, so call this on a manager-authenticated
+   * client (see {@link seedFloorMap}). */
+  saveFloorMap(
+    hotelId: string,
+    floor: number,
+    body: FloorMapWrite,
+  ): Promise<unknown> {
+    return this.request('PUT', `/api/v1/hotels/${hotelId}/map/${floor}`, body)
   }
 
   listTasks(
