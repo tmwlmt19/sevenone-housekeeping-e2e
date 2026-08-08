@@ -7,7 +7,8 @@
 import { APP, TEST_USER_PASSWORD } from '../src/config'
 import { expect, test } from '../src/fixtures'
 import { Api } from '../src/harness/api'
-import { loginAs } from '../src/harness/login'
+import { loginAs, logout } from '../src/harness/login'
+import { clockIn } from '../src/harness/shift'
 import { journey } from '../src/harness/step'
 
 test('HK-01: housekeeper sees only their assigned task', async ({
@@ -25,11 +26,12 @@ test('HK-01: housekeeper sees only their assigned task', async ({
       priority: 'normal',
     })
   })
-  await j.step('housekeeper signs in and lands on My Tasks', async () => {
+  await j.step('housekeeper signs in, clocks in, and lands on My Tasks', async () => {
     await loginAs(page, hotel.housekeeper.email, hotel.housekeeper.password, {
       expect: 'web',
     })
     await expect(page).toHaveURL(`${APP.web}/my-tasks`)
+    await clockIn(page)
   })
   await j.step('the task card shows the room, an Assigned badge, and a Start button', async () => {
     await expect(page.getByText(`Room ${room.room_number}`)).toBeVisible()
@@ -38,7 +40,7 @@ test('HK-01: housekeeper sees only their assigned task', async ({
   })
 })
 
-test('HK-02 & HK-03: housekeeper starts a task, completes it, and the room auto-cleans', async ({
+test('HK-02 & HK-03: housekeeper starts a task and submits it for approval (room stays dirty until a manager approves)', async ({
   page,
   hotel,
 }) => {
@@ -55,20 +57,26 @@ test('HK-02 & HK-03: housekeeper starts a task, completes it, and the room auto-
     await loginAs(page, hotel.housekeeper.email, hotel.housekeeper.password, {
       expect: 'web',
     })
+    await clockIn(page)
   })
   await j.step('HK-02: tap Start → task moves to In progress', async () => {
     await page.getByRole('button', { name: 'Start' }).click()
     await expect(page.getByText('In progress')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Mark complete' })).toBeVisible()
   })
-  await j.step('HK-03: tap Mark complete → task Completed, no more action button', async () => {
+  await j.step('HK-03: tap Mark complete → task goes to Pending approval, no more action button', async () => {
     await page.getByRole('button', { name: 'Mark complete' }).click()
-    await expect(page.getByText('Completed')).toBeVisible()
+    // A hotel with the default (no auto-approve) sends a completed task to the
+    // manager for sign-off; the housekeeper can no longer act on it.
+    await expect(page.getByText('Pending approval')).toBeVisible()
+    await expect(page.getByText('Awaiting manager approval')).toBeVisible()
     await expect(page.getByRole('button', { name: 'Mark complete' })).toHaveCount(0)
   })
-  await j.step('the room flipped to clean on the backend', async () => {
+  await j.step('the room has NOT been cleaned yet (approval is what flips it)', async () => {
     const updated = await hotel.admin.getRoom(hotel.hotelId, room.id)
-    expect(updated.status).toBe('clean')
+    expect(updated.status).toBe('dirty')
+    const [task] = await hotel.admin.listTasks(hotel.hotelId)
+    expect(task.status).toBe('pending_approval')
   })
 })
 
@@ -79,10 +87,11 @@ test('HK-04: a newly assigned task appears after a refetch', async ({
   const j = journey('HK-04')
   const room = hotel.rooms[0]
 
-  await j.step('sign in with no tasks yet', async () => {
+  await j.step('sign in and clock in with no tasks yet', async () => {
     await loginAs(page, hotel.housekeeper.email, hotel.housekeeper.password, {
       expect: 'web',
     })
+    await clockIn(page)
     await expect(page.getByText(/no tasks assigned to you/i)).toBeVisible()
   })
   await j.step('a manager assigns a task, then the list refetches', async () => {
@@ -139,5 +148,40 @@ test('HK-07-N: a housekeeper cannot change status on a task that is not theirs',
       { status: 'in_progress' },
     )
     expect(status).toBe(403)
+  })
+})
+
+test('HK-08: the clock-in gate blocks work until the housekeeper clocks in', async ({
+  page,
+  hotel,
+}) => {
+  const j = journey('HK-08')
+  const room = hotel.rooms[0]
+
+  await j.step('an assigned task is waiting for the housekeeper', async () => {
+    await hotel.admin.createTask(hotel.hotelId, {
+      room_id: room.id,
+      assigned_to: hotel.housekeeper.id,
+      status: 'assigned',
+      priority: 'normal',
+    })
+  })
+  await j.step('signing in lands on My Tasks behind the clock-in gate', async () => {
+    await loginAs(page, hotel.housekeeper.email, hotel.housekeeper.password, {
+      expect: 'web',
+    })
+    await expect(page).toHaveURL(`${APP.web}/my-tasks`)
+    // The gate is up: the clock-in prompt shows and the task is not yet visible.
+    await expect(page.getByRole('button', { name: 'Clock in' })).toBeVisible()
+    await expect(page.getByText(`Room ${room.room_number}`)).toHaveCount(0)
+  })
+  await j.step('clocking in lifts the gate and reveals the task + on-shift badge', async () => {
+    await clockIn(page)
+    await expect(page.getByText(`Room ${room.room_number}`)).toBeVisible()
+    await expect(page.getByText(/on shift since/i)).toBeVisible()
+  })
+  await j.step('logging out clears the session (and closes the shift)', async () => {
+    await logout(page)
+    await expect(page).toHaveURL(new RegExp(`^${APP.login}`))
   })
 })

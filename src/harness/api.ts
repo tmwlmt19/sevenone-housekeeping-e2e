@@ -22,7 +22,11 @@ interface ProvisionInput {
     room_type?: string | null
     status?: string
   }>
-  users: Array<{ name: string; email: string; role: 'manager' | 'housekeeper' }>
+  users: Array<{
+    name: string
+    email: string
+    role: 'manager' | 'front_desk' | 'housekeeper'
+  }>
 }
 
 interface ProvisionResult {
@@ -48,6 +52,38 @@ interface TaskRead {
   priority: string
   notes: string | null
   due_date: string | null
+}
+
+/** A vertex in absolute floor feet. */
+type Vertex = [number, number]
+
+/** A room's door: which wall (edge index) and where along it (t, 0..1). */
+interface DoorRef {
+  edge: number
+  t: number
+}
+
+interface DecorationWrite {
+  kind: 'hall' | 'stairs' | 'elevator' | 'lobby' | 'label'
+  vertices: Vertex[]
+  label?: string | null
+}
+
+interface PlacementWrite {
+  room_id: string
+  vertices: Vertex[]
+  door?: DoorRef | null
+}
+
+/** Full-floor save body (mirrors the backend `FloorMapWrite`): floor dimensions,
+ * optional outline, its decorations, and the complete set of room placements. */
+export interface FloorMapWrite {
+  width_ft: number
+  height_ft: number
+  grid_ft?: number
+  outline?: Vertex[] | null
+  decorations?: DecorationWrite[]
+  placements?: PlacementWrite[]
 }
 
 /**
@@ -102,6 +138,17 @@ export class Api {
     return this.request('GET', `/api/v1/hotels/${hotelId}/rooms`)
   }
 
+  /** Save one floor's layout (outline + decorations + room placements). The map
+   * PUT is a manager-scoped write, so call this on a manager-authenticated
+   * client (see {@link seedFloorMap}). */
+  saveFloorMap(
+    hotelId: string,
+    floor: number,
+    body: FloorMapWrite,
+  ): Promise<unknown> {
+    return this.request('PUT', `/api/v1/hotels/${hotelId}/map/${floor}`, body)
+  }
+
   listTasks(
     hotelId: string,
     params: { assignedTo?: string; status?: string } = {},
@@ -148,6 +195,24 @@ export class Api {
       `/api/v1/hotels/${hotelId}/rooms/${roomId}/status`,
       { status },
     )
+  }
+
+  /** Update a task's status (as whoever this client is logged in as). Used to
+   * drive the approval flow: a housekeeper submits, a manager approves. */
+  updateTaskStatus(hotelId: string, taskId: string, status: string): Promise<TaskRead> {
+    return this.request(
+      'PATCH',
+      `/api/v1/hotels/${hotelId}/tasks/${taskId}/status`,
+      { status },
+    )
+  }
+
+  /** Toggle whether completing a task auto-approves (skips manager sign-off).
+   * Hotel-ops power (manager/front-desk/admin). */
+  setAutoApprove(hotelId: string, autoApprove: boolean): Promise<{ id: string }> {
+    return this.request('PATCH', `/api/v1/hotels/${hotelId}/task-approval`, {
+      auto_approve_tasks: autoApprove,
+    })
   }
 
   getRoom(hotelId: string, roomId: string): Promise<RoomRead> {

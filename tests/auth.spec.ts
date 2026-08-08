@@ -235,3 +235,24 @@ test('AUTH-09-N: losing the session mid-use bounces to login', async ({
     })
   })
 })
+
+test('AUTH-10: the login password field can be shown and hidden', async ({
+  page,
+}) => {
+  const j = journey('AUTH-10')
+  const field = page.getByLabel('Password', { exact: true })
+
+  await j.step('open the login page; the password field is masked', async () => {
+    await page.goto(`${APP.login}/`)
+    await field.fill('some-secret-value')
+    await expect(field).toHaveAttribute('type', 'password')
+  })
+  await j.step('the eye toggle reveals the password', async () => {
+    await page.getByRole('button', { name: 'Show password' }).click()
+    await expect(field).toHaveAttribute('type', 'text')
+  })
+  await j.step('toggling again re-masks it', async () => {
+    await page.getByRole('button', { name: 'Hide password' }).click()
+    await expect(field).toHaveAttribute('type', 'password')
+  })
+})

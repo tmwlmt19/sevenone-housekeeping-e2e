@@ -19,7 +19,13 @@ export interface SeededHotel {
   /** Admin client already logged in as the platform admin. */
   admin: Api
   manager: SeededUser
+  /** Present only when provisioned with `withFrontDesk: true`. */
+  frontDesk?: SeededUser
   housekeeper: SeededUser
+  /** Present only when provisioned with `withSecondHousekeeper: true`. */
+  housekeeper2?: SeededUser
+  /** Present only when provisioned with `withThirdHousekeeper: true`. */
+  housekeeper3?: SeededUser
   rooms: Array<{ id: string; room_number: string }>
   /** The one-time shared temp password the provision endpoint returned. */
   tempPassword: string
@@ -41,6 +47,14 @@ export interface ProvisionOptions {
    * the tests that exercise the forced-change ceremony itself (AUTH-04).
    */
   clearForcedChange?: boolean
+  /** Also provision a `front_desk` user, returned as `hotel.frontDesk`. */
+  withFrontDesk?: boolean
+  /** Also provision a second housekeeper, returned as `hotel.housekeeper2`
+   * (for reassign/redistribute workload tests). */
+  withSecondHousekeeper?: boolean
+  /** Also provision a third housekeeper, returned as `hotel.housekeeper3`
+   * (for fair-share balancing tests across three or more staff). */
+  withThirdHousekeeper?: boolean
 }
 
 /** A short, email-safe, collision-resistant suffix for this test's data. */
@@ -62,21 +76,51 @@ export async function provisionHotel(
 
   const hotelName = `E2E ${opts.label ?? 'Hotel'} ${suffix}`
   const managerEmail = `mgr-${suffix}@${E2E_EMAIL_DOMAIN}`
+  const frontDeskEmail = `fd-${suffix}@${E2E_EMAIL_DOMAIN}`
   const housekeeperEmail = `hk-${suffix}@${E2E_EMAIL_DOMAIN}`
+  const housekeeper2Email = `hk2-${suffix}@${E2E_EMAIL_DOMAIN}`
+  const housekeeper3Email = `hk3-${suffix}@${E2E_EMAIL_DOMAIN}`
+
+  const users: Array<{
+    name: string
+    email: string
+    role: 'manager' | 'front_desk' | 'housekeeper'
+  }> = [
+    { name: `Manager ${suffix}`, email: managerEmail, role: 'manager' },
+    {
+      name: `Housekeeper ${suffix}`,
+      email: housekeeperEmail,
+      role: 'housekeeper',
+    },
+  ]
+  if (opts.withFrontDesk) {
+    users.push({
+      name: `Front Desk ${suffix}`,
+      email: frontDeskEmail,
+      role: 'front_desk',
+    })
+  }
+  if (opts.withSecondHousekeeper) {
+    users.push({
+      name: `Housekeeper Two ${suffix}`,
+      email: housekeeper2Email,
+      role: 'housekeeper',
+    })
+  }
+  if (opts.withThirdHousekeeper) {
+    users.push({
+      name: `Housekeeper Three ${suffix}`,
+      email: housekeeper3Email,
+      role: 'housekeeper',
+    })
+  }
 
   const result = await admin.provision({
     hotel: { name: hotelName, address: null },
     rooms:
       opts.rooms ??
       [{ room_number: '201', floor: 2, room_type: 'STD', status: 'dirty' }],
-    users: [
-      { name: `Manager ${suffix}`, email: managerEmail, role: 'manager' },
-      {
-        name: `Housekeeper ${suffix}`,
-        email: housekeeperEmail,
-        role: 'housekeeper',
-      },
-    ],
+    users,
   })
 
   const hotelId = result.hotel.id
@@ -110,12 +154,64 @@ export async function provisionHotel(
     mustChangePassword: true,
   }
 
+  let frontDesk: SeededUser | undefined
+  if (opts.withFrontDesk) {
+    const fdRaw = find('front_desk')
+    frontDesk = {
+      id: fdRaw.id,
+      email: fdRaw.email,
+      name: fdRaw.name,
+      password: tempPassword,
+      mustChangePassword: true,
+    }
+  }
+
+  let housekeeper2: SeededUser | undefined
+  if (opts.withSecondHousekeeper) {
+    const hk2Raw = result.users.find((u) => u.email === housekeeper2Email)
+    if (!hk2Raw) throw new Error('provision did not return the 2nd housekeeper')
+    housekeeper2 = {
+      id: hk2Raw.id,
+      email: hk2Raw.email,
+      name: hk2Raw.name,
+      password: tempPassword,
+      mustChangePassword: true,
+    }
+  }
+
+  let housekeeper3: SeededUser | undefined
+  if (opts.withThirdHousekeeper) {
+    const hk3Raw = result.users.find((u) => u.email === housekeeper3Email)
+    if (!hk3Raw) throw new Error('provision did not return the 3rd housekeeper')
+    housekeeper3 = {
+      id: hk3Raw.id,
+      email: hk3Raw.email,
+      name: hk3Raw.name,
+      password: tempPassword,
+      mustChangePassword: true,
+    }
+  }
+
   if (clearForced) {
     await clearForcedPasswordChange(manager)
     await clearForcedPasswordChange(housekeeper)
+    if (frontDesk) await clearForcedPasswordChange(frontDesk)
+    if (housekeeper2) await clearForcedPasswordChange(housekeeper2)
+    if (housekeeper3) await clearForcedPasswordChange(housekeeper3)
   }
 
-  return { hotelId, hotelName, admin, manager, housekeeper, rooms, tempPassword }
+  return {
+    hotelId,
+    hotelName,
+    admin,
+    manager,
+    frontDesk,
+    housekeeper,
+    housekeeper2,
+    housekeeper3,
+    rooms,
+    tempPassword,
+  }
 }
 
 /**

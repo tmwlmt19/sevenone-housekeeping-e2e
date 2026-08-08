@@ -19,18 +19,23 @@ async function asManager(page: import('@playwright/test').Page, hotel: SeededHot
   })
 }
 
-test('MGR-01: manager reads the dashboard at a glance', async ({ page, hotel }) => {
+test('MGR-01: manager reads the stats dashboard at a glance', async ({ page, hotel }) => {
   const j = journey('MGR-01')
   await j.step('sign in and land on the dashboard', async () => {
     await asManager(page, hotel)
     await expect(page).toHaveURL(`${APP.web}/dashboard`)
   })
-  await j.step('room grid and open-tasks sections render', async () => {
-    await expect(page.getByRole('heading', { name: 'Rooms' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Open tasks' })).toBeVisible()
+  await j.step('the two stats cards and the date-range control render', async () => {
+    // exact: true so the card title doesn't also match its header wrapper.
     await expect(
-      page.getByText(hotel.rooms[0].room_number, { exact: true }),
+      page.getByText('Housekeeper performance', { exact: true }),
     ).toBeVisible()
+    await expect(page.getByText('Task load', { exact: true })).toBeVisible()
+    // Date-range presets in the header (default is 7 days).
+    await expect(page.getByRole('button', { name: '7 days' })).toBeVisible()
+    // Performance card tabs.
+    await expect(page.getByRole('tab', { name: 'By housekeeper' })).toBeVisible()
+    await expect(page.getByRole('tab', { name: 'Efficiency' })).toBeVisible()
   })
 })
 
@@ -179,6 +184,197 @@ test('MGR-08: file a room add request', async ({ page, hotel }) => {
     await page.goto(`${APP.web}/requests`)
     await expect(page.getByText(roomNumber)).toBeVisible()
     await expect(page.getByText('Pending')).toBeVisible()
+  })
+})
+
+test('MGR-13: pending add-requests show inline on the staff & rooms pages', async ({
+  page,
+  hotel,
+}) => {
+  const j = journey('MGR-13')
+  const suffix = uniqueSuffix()
+  const newName = `Inline Hire ${suffix}`
+  const newEmail = `inline-${suffix}@e2e-sevenone.com`
+  const roomNumber = `INL-${suffix}`
+
+  await j.step('a manager files a staff-add and a room-add request', async () => {
+    const mgr = await Api.loggedIn(hotel.manager.email, TEST_USER_PASSWORD)
+    await mgr.fileRequest(hotel.hotelId, {
+      resource: 'staff',
+      kind: 'add',
+      payload: { name: newName, email: newEmail, role: 'housekeeper' },
+    })
+    await mgr.fileRequest(hotel.hotelId, {
+      resource: 'room',
+      kind: 'add',
+      payload: { room_number: roomNumber, room_type: 'STD' },
+    })
+  })
+  await j.step('the requested staff appears on Staff, flagged Pending', async () => {
+    await asManager(page, hotel)
+    await page.goto(`${APP.web}/staff`)
+    await expect(page.getByText(newName)).toBeVisible()
+    await expect(page.getByText('Pending', { exact: true })).toBeVisible()
+  })
+  await j.step('the requested room appears on Rooms, flagged Pending', async () => {
+    await page.goto(`${APP.web}/rooms`)
+    await expect(page.getByText(roomNumber)).toBeVisible()
+    await expect(page.getByText('Pending', { exact: true })).toBeVisible()
+  })
+})
+
+test('MGR-14: a pending removal flags the existing staff/room row', async ({
+  page,
+  hotel,
+}) => {
+  const j = journey('MGR-14')
+
+  await j.step('a manager files remove requests for the housekeeper and the room', async () => {
+    const mgr = await Api.loggedIn(hotel.manager.email, TEST_USER_PASSWORD)
+    await mgr.fileRequest(hotel.hotelId, {
+      resource: 'staff',
+      kind: 'remove',
+      target_id: hotel.housekeeper.id,
+    })
+    await mgr.fileRequest(hotel.hotelId, {
+      resource: 'room',
+      kind: 'remove',
+      target_id: hotel.rooms[0].id,
+    })
+  })
+  await j.step('the housekeeper row shows Pending removal on Staff', async () => {
+    await asManager(page, hotel)
+    await page.goto(`${APP.web}/staff`)
+    await expect(page.getByText(hotel.housekeeper.name)).toBeVisible()
+    await expect(page.getByText('Pending removal')).toBeVisible()
+  })
+  await j.step('the room row shows Pending removal on Rooms', async () => {
+    await page.goto(`${APP.web}/rooms`)
+    await expect(page.getByText('Pending removal')).toBeVisible()
+  })
+})
+
+test('MGR-15: with auto-approve on, a completed task skips sign-off and cleans the room', async ({
+  page,
+  hotel,
+}) => {
+  const j = journey('MGR-15')
+  const room = hotel.rooms[0]
+  let taskId = ''
+
+  await j.step('seed a task assigned to the housekeeper', async () => {
+    const task = await hotel.admin.createTask(hotel.hotelId, {
+      room_id: room.id,
+      assigned_to: hotel.housekeeper.id,
+      status: 'assigned',
+      priority: 'normal',
+    })
+    taskId = task.id
+  })
+  await j.step('manager turns on auto-approve from the Tasks page', async () => {
+    await asManager(page, hotel)
+    await page.goto(`${APP.web}/tasks`)
+    const toggle = page.getByRole('checkbox')
+    // The checkbox is controlled by the persisted hotel flag, so it only flips
+    // once the PATCH round-trips — click, then wait for the reflected state.
+    await toggle.click()
+    await expect(toggle).toBeChecked()
+  })
+  await j.step('the housekeeper completing the task goes straight to Completed', async () => {
+    const hk = await Api.loggedIn(hotel.housekeeper.email, TEST_USER_PASSWORD)
+    const updated = await hk.updateTaskStatus(hotel.hotelId, taskId, 'completed')
+    expect(updated.status).toBe('completed')
+  })
+  await j.step('and the room was cleaned (no manager approval needed)', async () => {
+    const updatedRoom = await hotel.admin.getRoom(hotel.hotelId, room.id)
+    expect(updatedRoom.status).toBe('clean')
+  })
+})
+
+test('MGR-16: manager reassigns a housekeeper’s whole workload to another (call-in)', async ({
+  page,
+}) => {
+  const j = journey('MGR-16')
+  const hotel = await provisionHotel({
+    label: 'Workload',
+    withSecondHousekeeper: true,
+  })
+  const out = hotel.housekeeper // the one who "called in"
+  const cover = hotel.housekeeper2!
+
+  await j.step('seed two open tasks assigned to the housekeeper who is out', async () => {
+    for (let i = 0; i < 2; i++) {
+      await hotel.admin.createTask(hotel.hotelId, {
+        room_id: hotel.rooms[0].id,
+        assigned_to: out.id,
+        status: 'assigned',
+        priority: 'normal',
+      })
+    }
+  })
+  await j.step('manager opens the Move-workload dialog on the Tasks page', async () => {
+    await loginAs(page, hotel.manager.email, hotel.manager.password, {
+      expect: 'web',
+    })
+    await page.goto(`${APP.web}/tasks`)
+    await page.getByRole('button', { name: 'Move workload' }).click()
+  })
+  await j.step('pick who is out, hand the whole workload to the covering housekeeper, submit', async () => {
+    await chooseOption(page, selectShowing(page, 'Select a housekeeper'), out.name)
+    // "Move their tasks to" is now a multi-select: open it and check the one
+    // covering housekeeper (a single pick hands them everything).
+    await page
+      .getByRole('button', { name: 'Everyone else (split evenly)' })
+      .click()
+    await page
+      .getByRole('menuitemcheckbox', { name: cover.name })
+      .click()
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Move tasks' }).click()
+    await expect(page.getByText('2 tasks moved')).toBeVisible()
+  })
+  await j.step('all open tasks now belong to the covering housekeeper (authoritative)', async () => {
+    const outTasks = await hotel.admin.listTasks(hotel.hotelId, {
+      assignedTo: out.id,
+    })
+    expect(outTasks.length).toBe(0)
+    const coverTasks = await hotel.admin.listTasks(hotel.hotelId, {
+      assignedTo: cover.id,
+    })
+    expect(coverTasks.length).toBe(2)
+    expect(coverTasks.every((t) => t.status === 'assigned')).toBe(true)
+  })
+})
+
+test('MGR-17: manager clears completed tasks off the board', async ({
+  page,
+  hotel,
+}) => {
+  const j = journey('MGR-17')
+
+  await j.step('seed a completed task', async () => {
+    await hotel.admin.createTask(hotel.hotelId, {
+      room_id: hotel.rooms[0].id,
+      assigned_to: hotel.housekeeper.id,
+      status: 'completed',
+      priority: 'normal',
+    })
+  })
+  await j.step('manager opens the board and clears completed', async () => {
+    await asManager(page, hotel)
+    await page.goto(`${APP.web}/tasks`)
+    await page.getByRole('button', { name: 'Clear completed' }).click()
+    // Confirm in the alert dialog.
+    await page
+      .getByRole('alertdialog')
+      .getByRole('button', { name: 'Clear', exact: true })
+      .click()
+    await expect(page.getByText('1 completed task cleared')).toBeVisible()
+  })
+  await j.step('the completed task is gone from the board (soft-archived)', async () => {
+    // Default list no longer returns the archived task.
+    const tasks = await hotel.admin.listTasks(hotel.hotelId)
+    expect(tasks.length).toBe(0)
   })
 })
 
